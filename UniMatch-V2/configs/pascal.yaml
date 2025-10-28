@@ -1,0 +1,22 @@
+# arguments for dataset
+dataset: pascal
+data_root: /workspace/coredata/CSL/data/Pascal
+nclass: 21
+crop_size: 518
+alpha: 8.0   # semi-supervised training
+
+# arguments for training
+epochs: 60
+batch_size: 8 # per GPU x 4 GPUs
+lr: 0.0000025
+lr_multi: 40.0
+criterion:
+  name: CELoss
+  kwargs:
+    ignore_index: 255
+# conf_thresh: 0.95
+
+# arguments for model
+model: dpt
+backbone: dinov2_base
+lock_backbone: False

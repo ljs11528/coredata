@@ -1,0 +1,7 @@
+CSL_new/data/
+
+*.pth
+
+*.ckpt
+
+*.zip

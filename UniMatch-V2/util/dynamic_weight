@@ -1,0 +1,94 @@
+import torch
+import torch.nn.functional as F
+
+@torch.no_grad()
+def get_max_confidence_and_residual_variance(predictions, valid_mask, num_classes, epsilon=1e-8):
+    valid_mask_expanded = valid_mask.unsqueeze(1).expand_as(predictions)
+    predictions = torch.where(valid_mask_expanded == 1, predictions, torch.tensor(float('nan')).to(predictions.device))
+    max_confidence, max_indices = torch.max(predictions, dim=1)
+    g_j = (num_classes - 1)**2 / (2 * (1 - max_confidence + epsilon))
+    one_hot_max = F.one_hot(max_indices, num_classes=predictions.shape[1]).permute(0, 3, 1, 2)
+    remaining_predictions = predictions * (1 - one_hot_max)
+    sum_remaining_predictions = torch.sum(remaining_predictions, dim=1)
+    num_remaining_classes = predictions.shape[1] - 1
+    mean_remaining_predictions = sum_remaining_predictions / num_remaining_classes
+    diff = remaining_predictions - mean_remaining_predictions.unsqueeze(1)
+    var = (diff ** 2).sum(dim=1) / num_remaining_classes
+    scaled_residual_variance = g_j * var
+    return max_confidence, scaled_residual_variance
+
+@torch.no_grad()
+def batch_class_stats(max_conf, res_var, num_classes):
+    means, vars = [], []
+    for index in range(max_conf.shape[0]):
+        features = torch.stack([max_conf[index], res_var[index]], dim=-1).view(-1, 2)
+        valid_mask = ~torch.isnan(features).any(dim=-1)
+        valid_features = features[valid_mask]
+        if valid_features.size(0) == 0:
+            means.append(torch.tensor((1, 0), device=max_conf.device))
+            vars.append(torch.tensor((1, 1), device=max_conf.device))
+            continue
+        class_assignments = _class_assignment(valid_features, 2)
+        class_centers = _compute_class_centers(valid_features, class_assignments, 2)
+        max_mean_idx = torch.argmax(class_centers[0][:, 0])
+        selected_mean = class_centers[0][max_mean_idx]
+        selected_var = class_centers[1][max_mean_idx]
+        means.append(selected_mean)
+        vars.append(selected_var)
+    return torch.stack(means), torch.stack(vars)
+
+def _compute_eigenvectors_with_svd(X, num_classes):
+    U, S, Vt = torch.linalg.svd(X.T, full_matrices=False)
+    eigvals = S ** 2
+    idx = torch.argsort(-eigvals)
+    eigvecs = Vt.T[:, idx[:num_classes]]
+    return eigvecs
+
+def _class_assignment(input, num_classes):
+    eigenvectors = _compute_eigenvectors_with_svd(input, num_classes)
+    return torch.argmax(torch.abs(eigenvectors), dim=1)
+
+def _compute_class_centers(features, class_assignments, num_classes):
+    means, vars = [], []
+    for class_id in range(num_classes):
+        points_in_class = features[class_assignments == class_id]
+        if points_in_class.size(0) == 0:
+            mean = torch.zeros(features.size(1), device=features.device)
+            var = torch.zeros(features.size(1), device=features.device)
+        elif points_in_class.size(0) == 1:
+            mean = points_in_class.squeeze(0)
+            var = torch.zeros(features.size(1), device=features.device)
+        else:
+            mean = points_in_class.mean(dim=0)
+            var = points_in_class.var(dim=0, unbiased=True)
+        means.append(mean)
+        vars.append(var)
+    return torch.stack(means), torch.stack(vars)
+
+@torch.no_grad()
+def get_weight(pred, ignore, num_classes, epsilon=1e-8, alpha=2.0):
+    weight_mask = torch.zeros_like(ignore, device=ignore.device)
+    valid_mask = (ignore != 255)
+    max_confidence, scaled_residual_variance = get_max_confidence_and_residual_variance(
+        pred, valid_mask, num_classes, epsilon
+    )
+    means, vars = batch_class_stats(max_confidence, scaled_residual_variance, num_classes)
+    conf_mean = means[:, 0].view(-1, 1, 1)
+    res_mean = means[:, 1].view(-1, 1, 1)
+    conf_var = vars[:, 0].view(-1, 1, 1)
+    res_var = vars[:, 1].view(-1, 1, 1)
+    conf_z = (max_confidence - conf_mean) / torch.sqrt(conf_var + epsilon)
+    res_z = (res_mean - scaled_residual_variance) / torch.sqrt(res_var + epsilon)
+    weight_conf = torch.exp(- (conf_z ** 2) / alpha)
+    weight_res = torch.exp(- (res_z ** 2) / alpha)
+    weight = weight_conf * weight_res
+    confident_mask = (conf_z > 0) | (res_z > 0)
+    weight = torch.where(confident_mask, torch.ones_like(weight), weight)
+    weight_mask = torch.where(valid_mask, weight, torch.zeros_like(weight))
+    return weight_mask
+    
+def semi_loss(pred, label, weight, ignore, criterion_u):
+    valid_mask = (ignore != 255)
+    loss = criterion_u(pred, label)
+    loss = loss * weight
+    return loss.sum() / valid_mask.sum()

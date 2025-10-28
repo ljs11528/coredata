@@ -1,0 +1,14 @@
+alpha: 8
+batch_iters: 248
+criterion:
+  kwargs:
+    ignore_index: 255
+  name: CELoss
+crop_size: 321
+eval_mode: original
+lr: 0.0015
+lr_multi: 10.0
+name: pascal
+nclass: 21
+save_path: exp/pascal/CSL/r101/1_4
+total_iters: 19840

@@ -1,0 +1,42 @@
+nclass: &nclass 19
+crop_size: &crop_size 801
+name: &name cityscapes
+
+epochs: 240
+batch_size: 2
+gpu_num: 4
+accumulate_grad_batches: 1
+
+dataset:
+  name: *name
+  root: Your/Cityscapes/Path
+  crop_size: *crop_size
+  cover_radio: 0.7
+  block_size : 32
+  
+train:
+  name: *name  
+  eval_mode: sliding_window
+  nclass: *nclass
+  crop_size: *crop_size
+  lr: 0.005
+  lr_multi: 1.0
+  alpha: 8
+  criterion:
+    name: OHEM
+    kwargs:
+      ignore_index: 255
+      thresh: 0.7
+      min_kept: 200000
+
+model:
+  backbone:
+    type: model.backbone.resnet.resnet101
+    kwargs:
+      pretrained: True
+      replace_stride_with_dilation: [False, True, True]
+  decoder:
+    type: model.semseg.deeplabv3plus.DeepLabV3Plus
+    kwargs:
+      nclass: *nclass
+      dilations: [12, 24, 36]

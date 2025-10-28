@@ -1,0 +1,39 @@
+nclass: &nclass 21
+crop_size: &crop_size 321
+name: &name pascal
+
+epochs: 80
+batch_size: 8
+gpu_num: 1
+accumulate_grad_batches: 1
+
+dataset:
+  name: *name
+  root: /workspace/coredata/CSL_new/data/Pascal
+  crop_size: *crop_size
+  cover_radio: 0.7
+  block_size : 32
+
+train:
+  name: *name  
+  eval_mode: original
+  nclass: *nclass
+  crop_size: *crop_size
+  lr: 0.001
+  lr_multi: 10.0
+  alpha: 8
+  criterion:
+    name: CELoss
+    kwargs:
+      ignore_index: 255
+model:
+  backbone:
+    type: model.backbone.resnet.resnet101
+    kwargs:
+      pretrained: True
+      replace_stride_with_dilation: [False, True, True]
+  decoder:
+    type: model.semseg.deeplabv3plus.DeepLabV3Plus
+    kwargs:
+      nclass: *nclass
+      dilations: [12, 24, 36]

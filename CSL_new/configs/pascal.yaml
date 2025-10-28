@@ -1,0 +1,50 @@
+nclass: &nclass 21
+crop_size: &crop_size 321
+name: &name pascal
+
+epochs: 80
+batch_size: 8
+gpu_num: 1
+accumulate_grad_batches: 1
+
+dataset:
+  name: *name
+  root: /workspace/coredata/CSL_new/data/Pascal
+  crop_size: *crop_size
+  cover_radio: 0.7  #  with cutmix
+  block_size : 32   #  with cutmix
+
+train:
+  name: *name  
+  eval_mode: original
+  nclass: *nclass
+  crop_size: *crop_size
+  lr: 0.001
+  lr_multi: 10.0
+  alpha: 8   #  origin 8
+  criterion:
+    name: CELoss
+    kwargs:
+      ignore_index: 255
+model:
+  backbone:
+    type: model.backbone.resnet.resnet101
+    kwargs:
+      pretrained: True
+      replace_stride_with_dilation: [False, True, True]
+  decoder:
+    type: model.semseg.deeplabv3plus.DeepLabV3Plus
+    kwargs:
+      nclass: *nclass
+      dilations: [12, 24, 36]
+
+test:
+  # Path to checkpoint (.ckpt). If you leave blank, pass --ckpt on CLI.
+  ckpt: /workspace/coredata/CSL_new/exp/pascal/CSL/r101/1_4/checkpoints/epoch=66-val_mIOU=78.84.ckpt
+  # Path to validation id file. If null, the test script will try to build one from JPEGImages and Annotations
+  # Prefer an existing split if available; fallback will be generated from dataset folders
+  val_id_path: /workspace/coredata/CSL/splits/pascal/val.txt
+  # Device to run on: 'cuda' or 'cpu'
+  device: cuda
+  # Evaluation mode: original, center_crop, or sliding_window
+  eval_mode: original
